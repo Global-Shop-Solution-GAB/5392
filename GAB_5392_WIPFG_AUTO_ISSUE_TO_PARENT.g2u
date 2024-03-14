@@ -1,0 +1,72 @@
+Program.Sub.Preflight.Start
+Program.External.Include.Library("450100.lib")
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+
+'This program will auto issue the finished good up to the parent if there is one.
+'In addition, this program will also pull up Supply & Deman with Issue Material capability if the part is manufactured to stock
+
+'GAB Script 16504
+f.Intrinsic.Control.Try
+	F.ODBC.Connection!CON.OPENCONNECTIOn(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+	v.Local.ssql.Declare
+	v.Local.sJob.Declare
+	v.Local.sSfx.Declare
+	v.Local.sPJB.Declare
+	v.Local.sPSF.Declare
+	v.Local.sRet.Declare
+	v.Local.sprt.Declare
+	v.Local.sSeq.Declare
+	v.Local.fQty.Declare
+	V.Local.sPrm.Declare
+	v.Local.sJob.Set(v.Passed.000003)
+	v.Local.sSfx.Set(v.Passed.000004)
+	v.Local.sprt.Set(v.Passed.000009)
+	v.Local.fQty.Set(v.Passed.000013)
+	F.Intrinsic.Math.Mult(V.Local.fQty,10000,v.Local.fQty)
+	
+	'Determine if there is Parent so it can auto issue up
+	f.Intrinsic.String.Build("SELECT PARENT_WO, PARENT_SUFFIX_PARENT FROM V_JOB_HEADER WHERE JOB='{0}' AND SUFFIX='{1}'",v.Local.sJob,v.Local.sSfx,v.Local.ssql)
+	f.ODBC.Connection!CON.executeandreturn(v.Local.ssql,v.Local.sret)
+	'Found a parent, and now needs to issue that up
+	f.Intrinsic.Control.If(v.Local.sRet.Trim,<>,"*!*")
+		f.Intrinsic.UI.InvokeWaitDialog("Parent Work Order Found, now issuing this part to its parent.")
+		
+		'Set the variables
+		f.Intrinsic.String.Split(v.Local.sRet,"*!*",v.Local.sRet)
+		v.Local.sPJB.Set(v.Local.sRet(0))
+		v.Local.sPSF.Set(v.Local.sret(1))
+		
+		'Grab the sequence for the parent's FG part line
+		f.Intrinsic.String.Build("SELECT SEQ FROM V_JOB_OPERATIONS WHERE JOB='{0}' AND SUFFIX='{1}' AND PART='{2}'",v.Local.sPJB,v.Local.sPSF,v.Local.sprt,v.Local.ssql)
+		f.ODBC.Connection!CON.executeandreturn(v.Local.ssql,v.Local.sSeq)
+		
+		'Add row to the library
+		f.Data.DataTable.AddRow("450100","Part",v.Local.sprt,"Quantity",v.Local.fQty,"WONumber",V.Local.sPJB,"WOSuffix",v.Local.sPSF,"WOSeq",v.Local.sSeq)
+	f.Intrinsic.Control.EndIf
+	
+	'If it has a row, then run the callwrapper
+	f.Intrinsic.Control.If(v.DataTable.450100.RowCount,>,0)
+		f.Intrinsic.Control.CallSub(450100Sync)
+	f.Intrinsic.Control.EndIf
+	
+	
+	
+	'Determine if this part is made to stock next
+	f.Intrinsic.String.Build("SELECT CODE_SOURCE FROM V_INVENTORY_ALL WHERE PART='{0}'",v.Local.sprt,v.Local.ssql)
+	f.ODBC.Connection!CON.executeandreturn(v.Local.ssql,v.Local.sret)
+	f.Intrinsic.Control.If(v.Local.sRet.Trim,=,"M")
+		f.Intrinsic.String.ConcatCallWrapperArgs(v.Local.sprt,"","A",v.Local.sPrm)
+		F.Global.General.CallWrapperSync(300011,v.Local.sPrm)
+	f.Intrinsic.Control.EndIf
+	
+	f.ODBC.Connection!CON.Close
+	f.Intrinsic.Control.End
+f.Intrinsic.Control.Catch
+	f.Intrinsic.UI.Msgbox(v.Ambient.ErrorDescription)
+	f.ODBC.Connection!CON.Close
+	f.Intrinsic.Control.End
+f.Intrinsic.Control.EndTry
+
+Program.Sub.Main.End
